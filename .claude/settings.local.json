@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm exec *)",
+      "Bash(node *)",
+      "Bash(DATA_REGION=서울 node *)",
+      "Bash(DATA_REGION=서울 MAX_GOOD_PRICE=99999 MAX_ONNURI=99999 node scripts/build-stores.mjs)",
+      "Bash(DATA_REGION=서울 MAX_GOOD_PRICE=2001 MAX_ONNURI=1000 node *)",
+      "Bash(DATA_REGION=전국 MAX_GOOD_PRICE=99999 MAX_ONNURI=99999 node scripts/build-stores.mjs)",
+      "Bash(DATA_REGION=전국 MAX_GOOD_PRICE=99999 MAX_ONNURI=0 node scripts/build-stores.mjs)",
+      "Bash(KAKAO_API_KEY=b449a86ef68d0b77bedc492ac9ed6e19 node *)",
+      "Bash(pnpm add *)",
+      "Bash(DATA_REGION=전국 MAX_GOOD_PRICE=99999 MAX_ONNURI=1000 node *)",
+      "Bash(pnpm build *)"
+    ]
+  }
+}

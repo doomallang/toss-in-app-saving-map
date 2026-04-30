@@ -1,0 +1,6 @@
+node_modules
+dist
+.granite
+*.ait
+.pnpm-store
+pnpm-lock.yaml
