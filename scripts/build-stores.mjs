@@ -11,7 +11,7 @@ const OUTPUT_PATH = "public/data/stores.json";
 
 const region = process.env.DATA_REGION ?? "강남구";
 const maxGoodPrice = Number(process.env.MAX_GOOD_PRICE ?? 1200);
-const maxOnnuri = Number(process.env.MAX_ONNURI ?? 600);
+const maxOnnuri = Number(process.env.MAX_ONNURI ?? 20000);
 
 function decodeCsv(buffer) {
   const utf8 = new TextDecoder("utf-8").decode(buffer);
@@ -109,10 +109,20 @@ function pick(row, keys) {
   return "";
 }
 
+const REGION_ABBREV = {
+  경상남: "경남",
+  경상북: "경북",
+  전라남: "전남",
+  전라북: "전북",
+  충청남: "충남",
+  충청북: "충북",
+};
+
 function normalizeRegionName(value) {
-  return value
+  const raw = value
     .replace(/특별시|광역시|특별자치시|특별자치도|자치도|도/g, "")
     .replace(/\s/g, "");
+  return REGION_ABBREV[raw] ?? raw;
 }
 
 function matchesRegion(row, keys) {
@@ -381,6 +391,15 @@ async function writeGeocodeTargets(stores) {
   return rows.length;
 }
 
+function getStoreRegion(store) {
+  const source =
+    store.sourceMeta?.sido ??
+    store.sourceMeta?.regionName ??
+    store.address.split(/\s+/)[0] ??
+    "";
+  return normalizeRegionName(source) || "기타";
+}
+
 const [goodPriceRows, onnuriRows, geocodes] = await Promise.all([
   readCsv(GOOD_PRICE_PATH),
   readCsv(ONNURI_PATH),
@@ -391,13 +410,15 @@ const goodPriceStores = buildGoodPriceStores(goodPriceRows, geocodes);
 const onnuriStores = buildOnnuriStores(onnuriRows);
 const stores = dedupeStores([...goodPriceStores, ...onnuriStores]);
 const geocodeTargetCount = await writeGeocodeTargets(stores);
+const generatedAt = new Date().toISOString();
 
+// Full stores.json (전국)
 await mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
 await writeFile(
   OUTPUT_PATH,
   JSON.stringify(
     {
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       region,
       counts: {
         goodPrice: goodPriceStores.length,
@@ -413,9 +434,46 @@ await writeFile(
   ),
 );
 
+// Per-region files: public/data/regions/{region}.json
+const byRegion = new Map();
+for (const store of stores) {
+  const r = getStoreRegion(store);
+  if (!byRegion.has(r)) byRegion.set(r, []);
+  byRegion.get(r).push(store);
+}
+
+const REGIONS_DIR = path.join(path.dirname(OUTPUT_PATH), "regions");
+await mkdir(REGIONS_DIR, { recursive: true });
+
+const regionEntries = [];
+for (const [regionName, regionStores] of byRegion.entries()) {
+  const regionPath = path.join(REGIONS_DIR, `${regionName}.json`);
+  await writeFile(
+    regionPath,
+    JSON.stringify({ generatedAt, region: regionName, stores: regionStores }, null, 2),
+  );
+  regionEntries.push({ name: regionName, count: regionStores.length });
+}
+
+// Index file: public/data/stores-index.json
+const indexPath = path.join(path.dirname(OUTPUT_PATH), "stores-index.json");
+await writeFile(
+  indexPath,
+  JSON.stringify(
+    {
+      generatedAt,
+      total: stores.length,
+      regions: regionEntries.sort((a, b) => b.count - a.count),
+    },
+    null,
+    2,
+  ),
+);
+
 console.log(`region=${region}`);
 console.log(`goodPrice=${goodPriceStores.length}`);
 console.log(`onnuri=${onnuriStores.length}`);
 console.log(`total=${stores.length}`);
 console.log(`geocodeTargets=${geocodeTargetCount}`);
 console.log(`output=${OUTPUT_PATH}`);
+console.log(`regions=${byRegion.size} files → ${REGIONS_DIR}`);

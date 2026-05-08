@@ -5,8 +5,7 @@ export default defineConfig({
   brand: {
     displayName: "절약지도",
     primaryColor: "#12B886",
-    // TODO: 배포 전 필수 — 정사각형(1:1) PNG, 512px 이상, 공개 접근 가능한 HTTPS URL로 교체
-    icon: "",
+    icon: "https://raw.githubusercontent.com/doomallang/toss-in-app-saving-map/main/public/icon.png",
   },
   web: {
     host: "localhost",

@@ -11,7 +11,14 @@
       "Bash(KAKAO_API_KEY=b449a86ef68d0b77bedc492ac9ed6e19 node *)",
       "Bash(pnpm add *)",
       "Bash(DATA_REGION=전국 MAX_GOOD_PRICE=99999 MAX_ONNURI=1000 node *)",
-      "Bash(pnpm build *)"
+      "Bash(pnpm build *)",
+      "Bash(pnpm data:build)",
+      "Bash(pnpm lint *)",
+      "Bash(awk '{print $2}')",
+      "Bash(pnpm dev *)",
+      "Bash(git -C /Users/aton/project/doomole/app-in-toss-project-1 remote -v)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

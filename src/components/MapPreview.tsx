@@ -1,15 +1,15 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Navigation } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+import "leaflet.markercluster";
+import { Map as MapIcon, Navigation } from "lucide-react";
+import { getKakaoMapUrl } from "../utils";
+import { useEffect, useRef } from "react";
 
 import { Store } from "../data/stores";
 import { inferStoreVisualVariant, StoreVisualVariant } from "../storeVisuals";
-
-type Coordinates = {
-  latitude: number;
-  longitude: number;
-};
+import { Coordinates, getDistanceLabel, getNaverMapUrl } from "../utils";
 
 const markerIconCache = new Map<string, L.DivIcon>();
 
@@ -25,11 +25,8 @@ const SEOUL_CENTER: [number, number] = [37.5665, 126.978];
 function getStoreMarkerIcon(store: Store, isSelected: boolean) {
   const variant: StoreVisualVariant = inferStoreVisualVariant(store);
   const cacheKey = `${variant}-${isSelected ? "selected" : "default"}`;
-  const cachedIcon = markerIconCache.get(cacheKey);
-
-  if (cachedIcon) {
-    return cachedIcon;
-  }
+  const cached = markerIconCache.get(cacheKey);
+  if (cached) return cached;
 
   const icon = L.divIcon({
     className: "",
@@ -40,22 +37,6 @@ function getStoreMarkerIcon(store: Store, isSelected: boolean) {
 
   markerIconCache.set(cacheKey, icon);
   return icon;
-}
-
-function getDistanceLabel(distanceMeters?: number) {
-  if (distanceMeters == null) {
-    return "지역 기준";
-  }
-
-  if (distanceMeters < 1000) {
-    return `${distanceMeters}m`;
-  }
-
-  return `${(distanceMeters / 1000).toFixed(1)}km`;
-}
-
-function getNaverMapUrl(store: Store) {
-  return `https://map.naver.com/p/search/${encodeURIComponent(`${store.name} ${store.address}`)}`;
 }
 
 export default function MapPreview({
@@ -75,56 +56,24 @@ export default function MapPreview({
 }) {
   const mapElRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
+  const userLayerRef = useRef<L.LayerGroup | null>(null);
   const storeMarkersRef = useRef<Map<string, L.Marker>>(new Map());
   const userMarkerRef = useRef<L.Marker | null>(null);
   const prevSelectedStoreIdRef = useRef<string | null>(null);
-  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
+  const onSelectStoreRef = useRef(onSelectStore);
+  onSelectStoreRef.current = onSelectStore;
 
-  const storesWithCoords = stores.filter(
-    (store) => store.latitude != null && store.longitude != null,
-  );
-
-  const center = useMemo<[number, number]>(() => {
-    if (userLocation) {
-      return [userLocation.latitude, userLocation.longitude];
-    }
-
-    if (selectedStore != null) {
-      return [selectedStore.latitude!, selectedStore.longitude!];
-    }
-
-    return SEOUL_CENTER;
-  }, [selectedStore, userLocation]);
-  const initialCenterRef = useRef(center);
-
-  const markersToRender = useMemo(() => {
-    const inView = mapBounds
-      ? storesWithCoords.filter((store) =>
-          mapBounds.contains([store.latitude!, store.longitude!]),
-        )
-      : storesWithCoords.slice(0, 100);
-
-    const capped = inView.slice(0, 200);
-
-    if (
-      selectedStore != null &&
-      selectedStore.latitude != null &&
-      !capped.find((store) => store.id === selectedStore.id)
-    ) {
-      capped.push(selectedStore);
-    }
-
-    return capped;
-  }, [storesWithCoords, mapBounds, selectedStore]);
-
+  // Map init
   useEffect(() => {
-    if (mapElRef.current == null || mapRef.current != null) {
-      return;
-    }
+    if (mapElRef.current == null || mapRef.current != null) return;
+
+    const initialCenter: [number, number] = userLocation
+      ? [userLocation.latitude, userLocation.longitude]
+      : SEOUL_CENTER;
 
     const map = L.map(mapElRef.current, {
-      center: initialCenterRef.current,
+      center: initialCenter,
       zoom: 14,
       zoomControl: false,
     });
@@ -135,38 +84,95 @@ export default function MapPreview({
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
-    const updateBounds = () => setMapBounds(map.getBounds());
-    map.on("moveend zoomend", updateBounds);
-    map.whenReady(() => setMapBounds(map.getBounds()));
+    const clusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 48,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      zoomToBoundsOnClick: true,
+      iconCreateFunction(cluster) {
+        const count = cluster.getChildCount();
+        const size = count < 10 ? "sm" : count < 50 ? "md" : "lg";
+        return L.divIcon({
+          html: `<span class="cluster-pin ${size}">${count}</span>`,
+          className: "",
+          iconSize: [40, 40],
+          iconAnchor: [20, 20],
+        });
+      },
+    });
+    clusterGroup.addTo(map);
 
-    const markerLayer = L.layerGroup().addTo(map);
-    markerLayerRef.current = markerLayer;
+    const userLayer = L.layerGroup().addTo(map);
+
+    clusterGroupRef.current = clusterGroup;
+    userLayerRef.current = userLayer;
     mapRef.current = map;
     const storeMarkers = storeMarkersRef.current;
 
     return () => {
       storeMarkers.clear();
       userMarkerRef.current = null;
-      markerLayerRef.current = null;
+      clusterGroupRef.current = null;
+      userLayerRef.current = null;
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 전체 마커 동기화 — hidden일 때 건너뛰고, 탭이 열릴 때 한 번에 반영
   useEffect(() => {
-    const markerLayer = markerLayerRef.current;
-    if (markerLayer == null) {
-      return;
+    const clusterGroup = clusterGroupRef.current;
+    if (clusterGroup == null || hidden) return;
+
+    const storesWithCoords = stores.filter(
+      (s) => s.latitude != null && s.longitude != null,
+    );
+    const nextIds = new Set(storesWithCoords.map((s) => s.id));
+    const existingMarkers = storeMarkersRef.current;
+
+    // 사라진 마커 제거
+    for (const [id, marker] of existingMarkers.entries()) {
+      if (!nextIds.has(id)) {
+        clusterGroup.removeLayer(marker);
+        existingMarkers.delete(id);
+      }
     }
+
+    // 새 마커 추가, 기존 마커 아이콘 갱신
+    const toAdd: L.Marker[] = [];
+    for (const store of storesWithCoords) {
+      const isSelected = store.id === selectedStoreId;
+      const existing = existingMarkers.get(store.id);
+
+      if (existing != null) {
+        existing.setIcon(getStoreMarkerIcon(store, isSelected));
+        continue;
+      }
+
+      const marker = L.marker([store.latitude!, store.longitude!], {
+        icon: getStoreMarkerIcon(store, isSelected),
+      });
+      marker.on("click", () => onSelectStoreRef.current(store));
+      existingMarkers.set(store.id, marker);
+      toAdd.push(marker);
+    }
+
+    if (toAdd.length > 0) {
+      clusterGroup.addLayers(toAdd);
+    }
+  }, [stores, selectedStoreId, hidden]);
+
+  // 내 위치 마커
+  useEffect(() => {
+    const userLayer = userLayerRef.current;
+    if (userLayer == null) return;
 
     if (userLocation) {
       if (userMarkerRef.current == null) {
         userMarkerRef.current = L.marker(
           [userLocation.latitude, userLocation.longitude],
-          {
-            icon: userMarkerIcon,
-          },
-        ).addTo(markerLayer);
+          { icon: userMarkerIcon },
+        ).addTo(userLayer);
       } else {
         userMarkerRef.current.setLatLng([
           userLocation.latitude,
@@ -174,72 +180,52 @@ export default function MapPreview({
         ]);
       }
     } else if (userMarkerRef.current != null) {
-      markerLayer.removeLayer(userMarkerRef.current);
+      userLayer.removeLayer(userMarkerRef.current);
       userMarkerRef.current = null;
     }
   }, [userLocation]);
 
-  useEffect(() => {
-    const markerLayer = markerLayerRef.current;
-    if (markerLayer == null) {
-      return;
-    }
-
-    const nextIds = new Set(markersToRender.map((store) => store.id));
-
-    for (const [storeId, marker] of storeMarkersRef.current.entries()) {
-      if (!nextIds.has(storeId)) {
-        markerLayer.removeLayer(marker);
-        storeMarkersRef.current.delete(storeId);
-      }
-    }
-
-    markersToRender.forEach((store) => {
-      const isSelected = store.id === selectedStore?.id;
-      const existingMarker = storeMarkersRef.current.get(store.id);
-
-      if (existingMarker != null) {
-        existingMarker.setLatLng([store.latitude!, store.longitude!]);
-        existingMarker.setIcon(getStoreMarkerIcon(store, isSelected));
-        existingMarker.off("click");
-        existingMarker.on("click", () => onSelectStore(store));
-        return;
-      }
-
-      const marker = L.marker([store.latitude!, store.longitude!], {
-        icon: getStoreMarkerIcon(store, isSelected),
-      }).addTo(markerLayer);
-      marker.on("click", () => onSelectStore(store));
-      storeMarkersRef.current.set(store.id, marker);
-    });
-  }, [markersToRender, onSelectStore, selectedStore]);
-
+  // 선택 가게로 지도 이동 + 클러스터 펼치기 — hidden 해제 시에도 실행
   useEffect(() => {
     const map = mapRef.current;
-    if (map == null || selectedStoreId == null) {
-      return;
-    }
+    const clusterGroup = clusterGroupRef.current;
+    if (map == null || clusterGroup == null || hidden) return;
+    if (selectedStoreId == null) return;
 
-    if (selectedStoreId === prevSelectedStoreIdRef.current) {
+    // hidden에서 복귀하거나 새 가게가 선택될 때만 이동
+    if (
+      selectedStoreId === prevSelectedStoreIdRef.current &&
+      prevSelectedStoreIdRef.current != null
+    ) {
       return;
     }
 
     prevSelectedStoreIdRef.current = selectedStoreId;
 
-    if (selectedStore?.latitude != null) {
+    if (selectedStore?.latitude == null) return;
+
+    const marker = storeMarkersRef.current.get(selectedStoreId);
+    if (marker) {
+      clusterGroup.zoomToShowLayer(marker, () => {
+        map.setView(
+          [selectedStore.latitude!, selectedStore.longitude!],
+          Math.max(map.getZoom(), 15),
+          { animate: true },
+        );
+      });
+    } else {
       map.setView(
         [selectedStore.latitude, selectedStore.longitude!],
-        map.getZoom(),
+        Math.max(map.getZoom(), 15),
         { animate: true },
       );
     }
-  }, [selectedStore, selectedStoreId]);
+  }, [selectedStore, selectedStoreId, hidden]);
 
+  // 탭 전환 시 지도 크기 재계산
   useEffect(() => {
     const map = mapRef.current;
-    if (hidden || map == null) {
-      return;
-    }
+    if (hidden || map == null) return;
 
     map.invalidateSize();
 
@@ -272,15 +258,26 @@ export default function MapPreview({
             </span>
             <span className="selected-place-hint">탭해서 상세 보기</span>
           </button>
-          <a
-            className="round-action"
-            href={getNaverMapUrl(selectedStore)}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="길찾기"
-          >
-            <Navigation size={19} />
-          </a>
+          <div className="map-actions">
+            <a
+              className="round-action"
+              href={getNaverMapUrl(selectedStore)}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="네이버 지도"
+            >
+              <Navigation size={19} />
+            </a>
+            <a
+              className="round-action kakao"
+              href={getKakaoMapUrl(selectedStore)}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="카카오맵"
+            >
+              <MapIcon size={19} />
+            </a>
+          </div>
         </div>
       ) : (
         <div className="selected-place empty">

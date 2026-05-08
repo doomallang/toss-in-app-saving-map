@@ -4,32 +4,16 @@ import {
   getCurrentLocation,
 } from "@apps-in-toss/web-framework";
 import {
-  Croissant,
-  Bookmark,
   BookmarkCheck,
-  Coffee,
   ChevronDown,
-  ChevronRight,
-  Compass,
-  ExternalLink,
   Home,
-  Info,
   LocateFixed,
   Map as MapIcon,
-  MapPin,
-  Phone,
-  Search,
   SlidersHorizontal,
   Sparkles,
   Star,
-  Scissors,
-  ShoppingBasket,
-  Soup,
-  Store as StoreIcon,
-  TramFront,
   UserRound,
   WalletCards,
-  X,
 } from "lucide-react";
 import {
   Suspense,
@@ -41,14 +25,28 @@ import {
   useRef,
   useState,
 } from "react";
+import { SearchField } from "@toss/tds-mobile";
 import "./App.css";
-import { Store, StoreCategory } from "./data/stores";
-import { inferStoreVisualVariant } from "./storeVisuals";
-
-type CategoryFilter = "all" | StoreCategory | "onnuri";
-type Tab = "home" | "map" | "saved" | "my";
-type SortOption = "distance" | "name";
-type PriceFilter = "all" | "under10k";
+import { EmptyResults, EmptySaved } from "./components/EmptyStates";
+import FilterSheet from "./components/FilterSheet";
+import MapListPanel from "./components/MapListPanel";
+import MyPanel from "./components/MyPanel";
+import RecentStores from "./components/RecentStores";
+import RegionSheet from "./components/RegionSheet";
+import { StoreListSkeleton } from "./components/Skeletons";
+import StoreCard from "./components/StoreCard";
+import StoreDetailSheet from "./components/StoreDetailSheet";
+import type { Store } from "./data/stores";
+import {
+  CategoryFilter,
+  PriceFilter,
+  RADIUS_OPTIONS,
+  REGION_ALL,
+  RadiusFilter,
+  SortOption,
+  Tab,
+} from "./types";
+import type { Coordinates } from "./utils";
 
 const CATEGORIES: Array<{ id: CategoryFilter; label: string }> = [
   { id: "all", label: "전체" },
@@ -60,7 +58,8 @@ const CATEGORIES: Array<{ id: CategoryFilter; label: string }> = [
 ];
 
 const SAVED_KEY = "saving-map.saved-store-ids";
-const REGION_ALL = "전국";
+const RECENT_KEY = "saving-map.recent-store-ids";
+const RECENT_MAX = 5;
 const REGION_ORDER = [
   "서울",
   "경기",
@@ -80,11 +79,6 @@ const REGION_ORDER = [
   "경남",
   "제주",
 ];
-
-type Coordinates = {
-  latitude: number;
-  longitude: number;
-};
 
 type StoreDataResponse = {
   generatedAt: string;
@@ -125,21 +119,14 @@ function hasCoordinates(store: Store) {
   return store.latitude != null && store.longitude != null;
 }
 
-function getDistanceLabel(distanceMeters?: number) {
-  if (distanceMeters == null) {
-    return "지역 기준";
-  }
-
-  if (distanceMeters < 1000) {
-    return `${distanceMeters}m`;
-  }
-
-  return `${(distanceMeters / 1000).toFixed(1)}km`;
-}
-
-function getNaverMapUrl(store: Store) {
-  return `https://map.naver.com/p/search/${encodeURIComponent(`${store.name} ${store.address}`)}`;
-}
+const REGION_ABBREV: Record<string, string> = {
+  경상남: "경남",
+  경상북: "경북",
+  전라남: "전남",
+  전라북: "전북",
+  충청남: "충남",
+  충청북: "충북",
+};
 
 function normalizeRegionLabel(value: string) {
   const trimmed = value.trim();
@@ -149,10 +136,11 @@ function normalizeRegionLabel(value: string) {
   }
 
   const firstToken = trimmed.split(/\s+/)[0] ?? trimmed;
-
-  return firstToken
+  const shortened = firstToken
     .replace(/특별시|광역시|특별자치시|특별자치도|자치도|도$/, "")
     .trim();
+
+  return REGION_ABBREV[shortened] ?? shortened;
 }
 
 function getStoreRegion(store: Store) {
@@ -175,6 +163,25 @@ async function readSavedIds() {
   }
 }
 
+async function readRecentIds() {
+  try {
+    const value = await Storage.getItem(RECENT_KEY);
+    return value ? (JSON.parse(value) as string[]) : [];
+  } catch {
+    const value = window.localStorage.getItem(RECENT_KEY);
+    return value ? (JSON.parse(value) as string[]) : [];
+  }
+}
+
+async function writeRecentIds(ids: string[]) {
+  const value = JSON.stringify(ids);
+  try {
+    await Storage.setItem(RECENT_KEY, value);
+  } catch {
+    window.localStorage.setItem(RECENT_KEY, value);
+  }
+}
+
 async function writeSavedIds(ids: string[]) {
   const value = JSON.stringify(ids);
 
@@ -185,41 +192,14 @@ async function writeSavedIds(ids: string[]) {
   }
 }
 
-function renderStoreVisualIcon(
-  variant: ReturnType<typeof inferStoreVisualVariant>,
-) {
-  if (variant === "restaurant") {
-    return <Soup size={22} />;
-  }
-
-  if (variant === "snack") {
-    return <Croissant size={22} />;
-  }
-
-  if (variant === "cafe") {
-    return <Coffee size={22} />;
-  }
-
-  if (variant === "beauty") {
-    return <Scissors size={22} />;
-  }
-
-  if (variant === "market") {
-    return <ShoppingBasket size={22} />;
-  }
-
-  if (variant === "mobility") {
-    return <TramFront size={22} />;
-  }
-
-  return <StoreIcon size={22} />;
-}
-
 function App() {
+  const [fullStores, setFullStores] = useState<Store[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+  const regionCacheRef = useRef(new Map<string, Store[]>());
   const [dataGeneratedAt, setDataGeneratedAt] = useState<string | null>(null);
   const [dataState, setDataState] = useState<DataState>("loading");
   const [dataErrorMessage, setDataErrorMessage] = useState<string | null>(null);
+  const [regionLoading, setRegionLoading] = useState(false);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const [tab, setTab] = useState<Tab>("home");
   const [category, setCategory] = useState<CategoryFilter>("all");
@@ -231,13 +211,17 @@ function App() {
   const [isLocating, setIsLocating] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>("distance");
   const [priceFilter, setPriceFilter] = useState<PriceFilter>("all");
+  const [radiusFilter, setRadiusFilter] = useState<RadiusFilter>("all");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isMapListOpen, setIsMapListOpen] = useState(false);
   const [selectedRegion, setSelectedRegion] = useState(REGION_ALL);
   const [isRegionOpen, setIsRegionOpen] = useState(false);
+  const [recentIds, setRecentIds] = useState<string[]>([]);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
 
   useEffect(() => {
     readSavedIds().then(setSavedIds);
+    readRecentIds().then(setRecentIds);
   }, []);
 
   useEffect(() => {
@@ -254,6 +238,7 @@ function App() {
       })
       .then((data) => {
         if (Array.isArray(data.stores) && data.stores.length > 0) {
+          setFullStores(data.stores);
           setStores(data.stores);
           setDataGeneratedAt(data.generatedAt);
           setSelectedRegion(normalizeRegionLabel(data.region));
@@ -261,6 +246,7 @@ function App() {
           return;
         }
 
+        setFullStores([]);
         setStores([]);
         setDataGeneratedAt(data.generatedAt ?? null);
         setSelectedRegion(normalizeRegionLabel(data.region ?? REGION_ALL));
@@ -268,6 +254,7 @@ function App() {
         setDataErrorMessage("표시할 절약처 데이터가 아직 없어요.");
       })
       .catch(() => {
+        setFullStores([]);
         setStores([]);
         setDataState("error");
         setDataErrorMessage(
@@ -275,6 +262,45 @@ function App() {
         );
       });
   }, []);
+
+  // 지역 변경 시 지역별 파일 lazy load
+  useEffect(() => {
+    if (dataState !== "ready") return;
+
+    if (selectedRegion === REGION_ALL) {
+      setStores(fullStores);
+      return;
+    }
+
+    const cache = regionCacheRef.current;
+    if (cache.has(selectedRegion)) {
+      setStores(cache.get(selectedRegion)!);
+      return;
+    }
+
+    setRegionLoading(true);
+    fetch(
+      `${import.meta.env.BASE_URL}data/regions/${encodeURIComponent(selectedRegion)}.json`,
+      { cache: "force-cache" },
+    )
+      .then(async (res) => {
+        if (!res.ok) throw new Error();
+        return (await res.json()) as { stores: Store[] };
+      })
+      .then((data) => {
+        cache.set(selectedRegion, data.stores);
+        setStores(data.stores);
+      })
+      .catch(() => {
+        // 지역 파일 없으면 전체에서 필터
+        const fallback = fullStores.filter(
+          (s) => getStoreRegion(s) === selectedRegion,
+        );
+        cache.set(selectedRegion, fallback);
+        setStores(fallback);
+      })
+      .finally(() => setRegionLoading(false));
+  }, [selectedRegion, dataState, fullStores]);
 
   const storesWithDistance = useMemo(() => {
     if (userLocation == null) {
@@ -299,13 +325,13 @@ function App() {
   const regionCounts = useMemo(() => {
     const counts = new Map<string, number>();
 
-    for (const store of storesWithDistance) {
+    for (const store of fullStores) {
       const region = getStoreRegion(store);
       counts.set(region, (counts.get(region) ?? 0) + 1);
     }
 
     return counts;
-  }, [storesWithDistance]);
+  }, [fullStores]);
 
   const regionOptions = useMemo(() => {
     const regions = Array.from(regionCounts.keys()).filter(
@@ -328,15 +354,8 @@ function App() {
     return [REGION_ALL, ...regions];
   }, [regionCounts]);
 
-  const regionScopedStores = useMemo(() => {
-    if (selectedRegion === REGION_ALL) {
-      return storesWithDistance;
-    }
-
-    return storesWithDistance.filter(
-      (store) => getStoreRegion(store) === selectedRegion,
-    );
-  }, [selectedRegion, storesWithDistance]);
+  // stores는 이미 선택된 지역 데이터이므로 추가 필터 불필요
+  const regionScopedStores = storesWithDistance;
 
   const filteredStores = useMemo(() => {
     return regionScopedStores
@@ -359,6 +378,17 @@ function App() {
 
         if (priceFilter === "under10k" && store.priceLabel !== "만원 이하") {
           return false;
+        }
+
+        if (radiusFilter !== "all") {
+          const maxMeters =
+            RADIUS_OPTIONS.find((o) => o.id === radiusFilter)?.meters ?? null;
+          if (
+            maxMeters != null &&
+            (store.distanceMeters == null || store.distanceMeters > maxMeters)
+          ) {
+            return false;
+          }
         }
 
         if (deferredQuery.length === 0) {
@@ -388,6 +418,7 @@ function App() {
     category,
     deferredQuery,
     priceFilter,
+    radiusFilter,
     savedIds,
     sortOption,
     regionScopedStores,
@@ -426,6 +457,7 @@ function App() {
   async function applyLocation(coords: Coordinates) {
     setUserLocation(coords);
     setLocationLabel("내 위치");
+    setRadiusFilter("all");
   }
 
   async function handleLocate() {
@@ -483,6 +515,15 @@ function App() {
   function handleOpenDetail(store: Store) {
     setSelectedStoreId(store.id);
     setDetailStoreId(store.id);
+
+    setRecentIds((prev) => {
+      const next = [store.id, ...prev.filter((id) => id !== store.id)].slice(
+        0,
+        RECENT_MAX,
+      );
+      writeRecentIds(next);
+      return next;
+    });
   }
 
   const visibleStores = filteredStores;
@@ -514,6 +555,15 @@ function App() {
   const listCountLabel =
     tab === "saved" ? savedStores.length : filteredStores.length;
 
+  const activeFilterCount =
+    (sortOption !== "distance" ? 1 : 0) +
+    (priceFilter !== "all" ? 1 : 0) +
+    (radiusFilter !== "all" ? 1 : 0);
+
+  const recentStores = recentIds
+    .map((id) => storesWithDistance.find((s) => s.id === id))
+    .filter((s): s is typeof storesWithDistance[number] => s != null);
+
   return (
     <main className="app-shell">
       <header className="app-header">
@@ -524,16 +574,15 @@ function App() {
           </h1>
         </div>
         <button
-          className={
-            sortOption !== "distance" || priceFilter !== "all"
-              ? "icon-button active"
-              : "icon-button"
-          }
+          className={activeFilterCount > 0 ? "icon-button active" : "icon-button"}
           type="button"
-          aria-label="필터"
+          aria-label={`필터${activeFilterCount > 0 ? ` (${activeFilterCount}개 적용 중)` : ""}`}
           onClick={() => setIsFilterOpen(true)}
         >
           <SlidersHorizontal size={20} />
+          {activeFilterCount > 0 && (
+            <span className="filter-badge">{activeFilterCount}</span>
+          )}
         </button>
       </header>
 
@@ -550,9 +599,10 @@ function App() {
           className="location-badge"
           type="button"
           onClick={() => setIsRegionOpen(true)}
+          disabled={regionLoading}
         >
           <span>{selectedRegion}</span>
-          <span>{listCountLabel}곳</span>
+          <span>{regionLoading ? "로딩 중…" : `${listCountLabel}곳`}</span>
           <ChevronDown size={16} />
         </button>
       </section>
@@ -580,27 +630,17 @@ function App() {
         </section>
       )}
 
-      <div className="search-box">
-        <Search size={18} />
-        <input
-          value={query}
-          onChange={(event) => {
-            const nextQuery = event.target.value;
-            startTransition(() => setQuery(nextQuery));
-          }}
-          placeholder="밥집, 온누리, 세탁 검색"
-        />
-        {query.length > 0 && (
-          <button
-            className="search-clear"
-            type="button"
-            aria-label="검색어 지우기"
-            onClick={() => setQuery("")}
-          >
-            <X size={16} />
-          </button>
-        )}
-      </div>
+      <SearchField
+        className="search-box"
+        aria-label="절약처 검색"
+        value={query}
+        onChange={(event) => {
+          const nextQuery = event.target.value;
+          startTransition(() => setQuery(nextQuery));
+        }}
+        onDeleteClick={() => setQuery("")}
+        placeholder="밥집, 온누리, 세탁 검색"
+      />
 
       <nav className="category-tabs" aria-label="카테고리">
         {visibleCategories.map((item) => (
@@ -610,6 +650,7 @@ function App() {
             }
             key={item.id}
             type="button"
+            aria-pressed={category === item.id}
             onClick={() => setCategory(item.id)}
           >
             {item.label}
@@ -618,30 +659,48 @@ function App() {
       </nav>
 
       {tab === "home" && (
-        <section className="summary-grid" aria-label="절약 요약">
-          <div className="summary-card primary">
-            <WalletCards size={20} />
-            <strong>만원 이하</strong>
-            <span>
-              {
-                regionScopedStores.filter(
-                  (store) => store.priceLabel === "만원 이하",
-                ).length
-              }
-              곳
-            </span>
-          </div>
-          <div className="summary-card">
-            <Sparkles size={20} />
-            <strong>온누리</strong>
-            <span>{onnuriCount}곳</span>
-          </div>
-          <div className="summary-card">
-            <BookmarkCheck size={20} />
-            <strong>저장</strong>
-            <span>{regionalSavedCount}곳</span>
-          </div>
-        </section>
+        <>
+          <section className="summary-grid" aria-label="절약 요약">
+            <div className="summary-card primary">
+              <WalletCards size={20} />
+              <strong>만원 이하</strong>
+              <span>
+                {
+                  regionScopedStores.filter(
+                    (store) => store.priceLabel === "만원 이하",
+                  ).length
+                }
+                곳
+              </span>
+            </div>
+            <div className="summary-card">
+              <Sparkles size={20} />
+              <strong>온누리</strong>
+              <span>{onnuriCount}곳</span>
+            </div>
+            <div className="summary-card">
+              <BookmarkCheck size={20} />
+              <strong>저장</strong>
+              <span>{regionalSavedCount}곳</span>
+            </div>
+          </section>
+
+          {dataGeneratedAt != null && (
+            <p className="data-updated-label">
+              공공데이터{" "}
+              {new Date(dataGeneratedAt).toLocaleDateString("ko-KR")} 기준
+            </p>
+          )}
+
+          {recentStores.length > 0 && (
+            <RecentStores
+              stores={recentStores}
+              savedIds={savedIds}
+              onSelect={handleOpenDetail}
+              onToggleSaved={handleToggleSaved}
+            />
+          )}
+        </>
       )}
 
       <Suspense fallback={<MapPanelFallback hidden={tab !== "map"} />}>
@@ -654,6 +713,22 @@ function App() {
           onSelectStore={handleOpenDetail}
         />
       </Suspense>
+
+      {tab === "map" && (
+        <MapListPanel
+          isOpen={isMapListOpen}
+          stores={filteredStores}
+          savedIds={savedIds}
+          selectedStoreId={selectedStoreId}
+          onToggle={() => setIsMapListOpen((v) => !v)}
+          onSelectStore={(store) => {
+            setSelectedStoreId(store.id);
+            setIsMapListOpen(false);
+          }}
+          onOpenDetail={handleOpenDetail}
+          onToggleSaved={handleToggleSaved}
+        />
+      )}
 
       {tab === "my" ? (
         <MyPanel
@@ -669,10 +744,27 @@ function App() {
           }
           onLocate={handleLocate}
         />
+      ) : dataState === "loading" || regionLoading ? (
+        <StoreListSkeleton />
       ) : tab === "saved" && savedStores.length === 0 ? (
-        <EmptySaved onGoHome={() => setTab("home")} />
+        <EmptySaved
+          totalSavedCount={totalSavedCount}
+          onGoHome={() => setTab("home")}
+          onViewAll={() => setSelectedRegion(REGION_ALL)}
+        />
       ) : visibleStores.length === 0 ? (
-        <EmptyResults />
+        <EmptyResults
+          hasQuery={query.length > 0}
+          hasFilter={activeFilterCount > 0 || category !== "all"}
+          onClearQuery={() => setQuery("")}
+          onResetFilters={() => {
+            setQuery("");
+            setCategory("all");
+            setSortOption("distance");
+            setPriceFilter("all");
+            setRadiusFilter("all");
+          }}
+        />
       ) : (
         <section className="store-list" aria-label="절약처 목록">
           <div className="section-title">
@@ -686,9 +778,6 @@ function App() {
               isSaved={savedIds.includes(store.id)}
               key={store.id}
               store={store}
-              onOpenMap={() =>
-                window.open(getNaverMapUrl(store), "_blank", "noopener")
-              }
               onSelect={() => handleOpenDetail(store)}
               onPreviewMap={() => handleOpenMap(store)}
               onToggleSaved={() => handleToggleSaved(store.id)}
@@ -702,10 +791,13 @@ function App() {
 
       {isFilterOpen && (
         <FilterSheet
+          hasLocation={userLocation != null}
           sortOption={sortOption}
           priceFilter={priceFilter}
+          radiusFilter={radiusFilter}
           onChangeSortOption={setSortOption}
           onChangePriceFilter={setPriceFilter}
+          onChangeRadiusFilter={setRadiusFilter}
           onClose={() => setIsFilterOpen(false)}
         />
       )}
@@ -728,9 +820,6 @@ function App() {
           isSaved={savedIds.includes(detailStore.id)}
           store={detailStore}
           onClose={() => setDetailStoreId(null)}
-          onOpenMap={() =>
-            window.open(getNaverMapUrl(detailStore), "_blank", "noopener")
-          }
           onPreviewMap={() => {
             handleOpenMap(detailStore);
             setDetailStoreId(null);
@@ -787,391 +876,7 @@ function MapPanelFallback({ hidden }: { hidden: boolean }) {
   );
 }
 
-function StoreCard({
-  isActive,
-  isSaved,
-  store,
-  onOpenMap,
-  onPreviewMap,
-  onSelect,
-  onToggleSaved,
-}: {
-  isActive: boolean;
-  isSaved: boolean;
-  store: Store;
-  onOpenMap: () => void;
-  onPreviewMap: () => void;
-  onSelect: () => void;
-  onToggleSaved: () => void;
-}) {
-  const variant = inferStoreVisualVariant(store);
 
-  return (
-    <article className={isActive ? "store-card active" : "store-card"}>
-      <button
-        className={
-          isActive ? `store-logo ${variant} active` : `store-logo ${variant}`
-        }
-        type="button"
-        onClick={onPreviewMap}
-        aria-label="지도 미리보기"
-      >
-        {renderStoreVisualIcon(variant)}
-      </button>
-
-      <button className="store-content" type="button" onClick={onSelect}>
-        <span className="store-meta">
-          {store.source} · {getDistanceLabel(store.distanceMeters)}
-        </span>
-        <strong>{store.name}</strong>
-        <span className="benefit">
-          {store.benefitTitle}
-          {store.onnuri === "digital" && (
-            <span className="onnuri-badge digital">디지털</span>
-          )}
-          {store.onnuri === "paper" && (
-            <span className="onnuri-badge paper">지류</span>
-          )}
-        </span>
-        <span className="address">{store.address}</span>
-      </button>
-
-      <div className="store-actions">
-        <button
-          className="card-icon-button"
-          type="button"
-          onClick={onToggleSaved}
-          aria-label="저장"
-        >
-          {isSaved ? <BookmarkCheck size={20} /> : <Bookmark size={20} />}
-        </button>
-        <button
-          className="card-icon-button"
-          type="button"
-          onClick={onOpenMap}
-          aria-label="지도 열기"
-        >
-          <ChevronRight size={20} />
-        </button>
-      </div>
-    </article>
-  );
-}
-
-function StoreDetailSheet({
-  isSaved,
-  store,
-  onClose,
-  onOpenMap,
-  onPreviewMap,
-  onToggleSaved,
-}: {
-  isSaved: boolean;
-  store: Store;
-  onClose: () => void;
-  onOpenMap: () => void;
-  onPreviewMap: () => void;
-  onToggleSaved: () => void;
-}) {
-  const phone = store.sourceMeta?.phone;
-  const hasPhone = phone != null && phone.trim().length > 0;
-  const variant = inferStoreVisualVariant(store);
-
-  return (
-    <div className="sheet-backdrop" role="presentation" onClick={onClose}>
-      <section
-        className="detail-sheet"
-        aria-label={`${store.name} 상세`}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="sheet-handle" />
-        <div className="detail-header">
-          <div className="detail-header-main">
-            <div className={`detail-store-badge ${variant}`}>
-              {renderStoreVisualIcon(variant)}
-            </div>
-            <div>
-              <span>{store.source}</span>
-              <h2>{store.name}</h2>
-            </div>
-          </div>
-          <button
-            className="card-icon-button"
-            type="button"
-            onClick={onClose}
-            aria-label="닫기"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className={`detail-benefit ${variant}`}>
-          <strong>{store.benefitTitle}</strong>
-          <span>{store.benefitDescription}</span>
-        </div>
-
-        <div className="detail-info-list">
-          <div className="detail-info-row">
-            <MapPin size={18} />
-            <span>{store.address}</span>
-          </div>
-          <div className="detail-info-row">
-            <Compass size={18} />
-            <span>{getDistanceLabel(store.distanceMeters)}</span>
-          </div>
-          <div className="detail-info-row">
-            <Info size={18} />
-            <span>{store.priceLabel}</span>
-          </div>
-        </div>
-
-        <div className="detail-actions">
-          <button type="button" onClick={onToggleSaved}>
-            {isSaved ? <BookmarkCheck size={19} /> : <Bookmark size={19} />}
-            {isSaved ? "저장됨" : "저장"}
-          </button>
-          <button type="button" onClick={onPreviewMap}>
-            <MapIcon size={19} />
-            미리보기
-          </button>
-          <button type="button" onClick={onOpenMap}>
-            <ExternalLink size={19} />
-            길찾기
-          </button>
-          {hasPhone && (
-            <a href={`tel:${phone}`}>
-              <Phone size={19} />
-              전화
-            </a>
-          )}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function FilterSheet({
-  sortOption,
-  priceFilter,
-  onChangeSortOption,
-  onChangePriceFilter,
-  onClose,
-}: {
-  sortOption: SortOption;
-  priceFilter: PriceFilter;
-  onChangeSortOption: (option: SortOption) => void;
-  onChangePriceFilter: (filter: PriceFilter) => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="sheet-backdrop" role="presentation" onClick={onClose}>
-      <section
-        className="filter-sheet"
-        aria-label="필터 및 정렬"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sheet-handle" />
-        <h2 className="filter-sheet-title">필터 및 정렬</h2>
-
-        <p className="filter-section-label">정렬</p>
-        <div className="filter-option-group">
-          {(
-            [
-              { id: "distance", label: "거리순" },
-              { id: "name", label: "이름순" },
-            ] as const
-          ).map((item) => (
-            <button
-              key={item.id}
-              className={
-                sortOption === item.id
-                  ? "filter-option active"
-                  : "filter-option"
-              }
-              type="button"
-              onClick={() => onChangeSortOption(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-
-        <p className="filter-section-label">가격</p>
-        <div className="filter-option-group">
-          {(
-            [
-              { id: "all", label: "전체" },
-              { id: "under10k", label: "만원 이하" },
-            ] as const
-          ).map((item) => (
-            <button
-              key={item.id}
-              className={
-                priceFilter === item.id
-                  ? "filter-option active"
-                  : "filter-option"
-              }
-              type="button"
-              onClick={() => onChangePriceFilter(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-
-        <button className="filter-close-button" type="button" onClick={onClose}>
-          닫기
-        </button>
-      </section>
-    </div>
-  );
-}
-
-function RegionSheet({
-  counts,
-  options,
-  selectedRegion,
-  onClose,
-  onSelectRegion,
-}: {
-  counts: Map<string, number>;
-  options: string[];
-  selectedRegion: string;
-  onClose: () => void;
-  onSelectRegion: (region: string) => void;
-}) {
-  const totalCount = Array.from(counts.values()).reduce(
-    (sum, count) => sum + count,
-    0,
-  );
-
-  return (
-    <div className="sheet-backdrop" role="presentation" onClick={onClose}>
-      <section
-        className="filter-sheet"
-        aria-label="지역 선택"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="sheet-handle" />
-        <h2 className="filter-sheet-title">지역 선택</h2>
-
-        <div className="region-option-list">
-          {options.map((region) => {
-            const count =
-              region === REGION_ALL ? totalCount : (counts.get(region) ?? 0);
-
-            return (
-              <button
-                key={region}
-                className={
-                  selectedRegion === region
-                    ? "region-option active"
-                    : "region-option"
-                }
-                type="button"
-                onClick={() => onSelectRegion(region)}
-              >
-                <strong>{region}</strong>
-                <span>{count.toLocaleString()}곳</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <button className="filter-close-button" type="button" onClick={onClose}>
-          닫기
-        </button>
-      </section>
-    </div>
-  );
-}
-
-function EmptySaved({ onGoHome }: { onGoHome: () => void }) {
-  return (
-    <section className="empty-state">
-      <Compass size={32} />
-      <h2>저장한 절약처가 없어요</h2>
-      <p>
-        자주 가는 밥집이나 온누리 가맹점을 저장해두면 바로 다시 찾을 수 있어요.
-      </p>
-      <button type="button" onClick={onGoHome}>
-        가까운 곳 보기
-      </button>
-    </section>
-  );
-}
-
-function EmptyResults() {
-  return (
-    <section className="empty-state">
-      <Compass size={32} />
-      <h2>조건에 맞는 절약처가 없어요</h2>
-      <p>검색어를 지우거나 다른 카테고리로 바꿔서 다시 확인해보세요.</p>
-    </section>
-  );
-}
-
-function MyPanel({
-  dataGeneratedAt,
-  onnuriCount,
-  regionLabel,
-  regionalSavedCount,
-  totalSavedCount,
-  totalCount,
-  under10kCount,
-  onLocate,
-}: {
-  dataGeneratedAt: string | null;
-  onnuriCount: number;
-  regionLabel: string;
-  regionalSavedCount: number;
-  totalSavedCount: number;
-  totalCount: number;
-  under10kCount: number;
-  onLocate: () => void;
-}) {
-  const updatedLabel =
-    dataGeneratedAt != null
-      ? `공공데이터 ${new Date(dataGeneratedAt).toLocaleDateString("ko-KR")} 기준`
-      : "공공데이터 기반";
-
-  return (
-    <section className="my-panel" aria-label="마이">
-      <div className="my-hero">
-        <span>{updatedLabel}</span>
-        <strong>
-          {totalSavedCount > 0
-            ? `${regionalSavedCount}곳 저장해뒀어요`
-            : "절약처를 저장해보세요"}
-        </strong>
-        <p>
-          {regionLabel} 기준 저장 {regionalSavedCount}곳, 전체 저장{" "}
-          {totalSavedCount}곳이에요.
-        </p>
-      </div>
-
-      <div className="my-stat-grid">
-        <div>
-          <strong>{totalCount.toLocaleString()}</strong>
-          <span>전체 절약처</span>
-        </div>
-        <div>
-          <strong>{under10kCount.toLocaleString()}</strong>
-          <span>만원 이하</span>
-        </div>
-        <div>
-          <strong>{onnuriCount.toLocaleString()}</strong>
-          <span>온누리 가맹</span>
-        </div>
-      </div>
-
-      <button className="my-action" type="button" onClick={onLocate}>
-        <LocateFixed size={18} />
-        위치 다시 확인
-      </button>
-    </section>
-  );
-}
 
 function NavButton({
   active,
@@ -1188,6 +893,7 @@ function NavButton({
     <button
       className={active ? "nav-button active" : "nav-button"}
       type="button"
+      aria-current={active ? "page" : undefined}
       onClick={onClick}
     >
       {icon}

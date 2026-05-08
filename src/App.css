@@ -65,9 +65,32 @@ button {
   box-shadow: 0 6px 16px rgba(27, 39, 51, 0.06);
 }
 
+.icon-button {
+  position: relative;
+}
+
 .icon-button.active {
   color: #12b886;
   border-color: #12b886;
+}
+
+.filter-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  background: #12b886;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  line-height: 1;
 }
 
 .location-row {
@@ -168,41 +191,7 @@ button {
 }
 
 .search-box {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   margin-top: 14px;
-  padding: 0 14px;
-  height: 50px;
-  color: #8b95a1;
-  background: #ffffff;
-  border: 1px solid #e5e8eb;
-  border-radius: 8px;
-}
-
-.search-box input {
-  min-width: 0;
-  width: 100%;
-  color: #191f28;
-  background: transparent;
-  border: 0;
-  outline: none;
-}
-
-.search-box input::placeholder {
-  color: #8b95a1;
-}
-
-.search-clear {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  color: #8b95a1;
-  background: #e5e8eb;
-  border-radius: 50%;
 }
 
 .category-tabs {
@@ -271,6 +260,13 @@ button {
   font-size: 13px;
 }
 
+.data-updated-label {
+  margin: 6px 0 0;
+  color: #b0b8c1;
+  font-size: 11px;
+  text-align: right;
+}
+
 .map-preview {
   margin-top: 18px;
   overflow: hidden;
@@ -284,10 +280,103 @@ button {
   height: 340px;
 }
 
+/* ── 지도 목록 패널 ─────────────────────────── */
+.map-list-panel {
+  margin-top: 8px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #e5e8eb;
+  border-radius: 12px;
+  transition: box-shadow 0.2s;
+}
+
+.map-list-panel.open {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.map-list-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 16px;
+  background: #ffffff;
+  text-align: left;
+}
+
+.map-list-handle {
+  display: block;
+  flex-shrink: 0;
+  width: 28px;
+  height: 4px;
+  background: #e5e8eb;
+  border-radius: 2px;
+}
+
+.map-list-label {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+  color: #191f28;
+}
+
+.map-list-chevron {
+  flex-shrink: 0;
+  color: #8b95a1;
+  transition: transform 0.2s;
+}
+
+.map-list-chevron.up {
+  transform: rotate(180deg);
+}
+
+.map-list-body {
+  border-top: 1px solid #f2f4f6;
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.map-list-empty {
+  padding: 24px 16px;
+  color: #8b95a1;
+  font-size: 14px;
+  text-align: center;
+}
+
 .map-canvas.loading {
   background:
     linear-gradient(135deg, rgba(18, 184, 134, 0.1), rgba(49, 130, 246, 0.08)),
     #f2f4f6;
+}
+
+.cluster-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+  background: #12b886;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 4px 14px rgba(18, 184, 134, 0.38);
+}
+
+.cluster-pin.md {
+  width: 46px;
+  height: 46px;
+  font-size: 14px;
+  background: #0f9e73;
+}
+
+.cluster-pin.lg {
+  width: 52px;
+  height: 52px;
+  font-size: 15px;
+  background: #0b7a52;
 }
 
 .leaflet-store-pin,
@@ -466,11 +555,23 @@ button {
   font-weight: 700;
 }
 
+.map-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .round-action {
   flex: 0 0 auto;
   color: #ffffff;
   background: #12b886;
   border-color: #12b886;
+}
+
+.round-action.kakao {
+  background: #fee500;
+  border-color: #fee500;
+  color: #3c1e1e;
 }
 
 .store-list {
@@ -494,6 +595,160 @@ button {
   color: #6b7684;
   font-size: 13px;
   font-weight: 700;
+}
+
+/* ── 최근 본 곳 ─────────────────────────────── */
+.recent-stores {
+  margin-bottom: 24px;
+}
+
+.recent-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.recent-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.recent-card {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 120px;
+  padding: 12px 10px 10px;
+  background: #ffffff;
+  border: 1px solid #e5e8eb;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.recent-card:active {
+  background: #f2f4f6;
+}
+
+.recent-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: #ffffff;
+  border-radius: 8px;
+}
+
+.recent-card-icon.restaurant { background: #16a34a; }
+.recent-card-icon.snack      { background: #f59e0b; }
+.recent-card-icon.cafe       { background: #c47f17; }
+.recent-card-icon.beauty     { background: #db2777; }
+.recent-card-icon.market     { background: #2563eb; }
+.recent-card-icon.mobility   { background: #475569; }
+.recent-card-icon.default    { background: #12b886; }
+
+.recent-card-name {
+  width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-card-benefit {
+  width: 100%;
+  overflow: hidden;
+  color: #6b7684;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-card-save {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  color: #b0b8c1;
+}
+
+.recent-card-save.saved {
+  color: #12b886;
+}
+
+@keyframes shimmer {
+  from { background-position: -200% center; }
+  to   { background-position:  200% center; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #f0f2f5 25%,
+    #e4e7ec 50%,
+    #f0f2f5 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+.store-card-skeleton {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 40px;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #edf0f3;
+  border-radius: 8px;
+}
+
+.store-card-skeleton + .store-card-skeleton {
+  margin-top: 10px;
+}
+
+.store-card-skeleton .sk-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+}
+
+.store-card-skeleton .sk-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.store-card-skeleton .sk-line {
+  height: 12px;
+}
+
+.store-card-skeleton .sk-line.w-half  { width: 50%; }
+.store-card-skeleton .sk-line.w-full  { width: 100%; }
+.store-card-skeleton .sk-line.w-three { width: 75%; }
+
+.store-card-skeleton .sk-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.store-card-skeleton .sk-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
 }
 
 .store-card {
@@ -629,6 +884,19 @@ button {
 .onnuri-badge.paper {
   color: #7c3aed;
   background: #ede9fe;
+}
+
+.onnuri-type {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.onnuri-type.digital {
+  color: #1b64da;
+}
+
+.onnuri-type.paper {
+  color: #7c3aed;
 }
 
 .store-actions {
@@ -989,6 +1257,12 @@ button {
   line-height: 1.55;
 }
 
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .empty-state button {
   display: inline-flex;
   align-items: center;
@@ -998,6 +1272,11 @@ button {
   font-weight: 800;
   background: #3182f6;
   border-radius: 8px;
+}
+
+.empty-state button.secondary {
+  color: #4e5968;
+  background: #f2f4f6;
 }
 
 .my-panel {
