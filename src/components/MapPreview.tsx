@@ -4,12 +4,11 @@ import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import "leaflet.markercluster";
 import { Map as MapIcon, Navigation } from "lucide-react";
-import { getKakaoMapUrl } from "../utils";
 import { useEffect, useRef } from "react";
 
 import { Store } from "../data/stores";
 import { inferStoreVisualVariant, StoreVisualVariant } from "../storeVisuals";
-import { Coordinates, getDistanceLabel, getNaverMapUrl } from "../utils";
+import { Coordinates, getDistanceLabel, openKakaoMap, openNaverMap } from "../utils";
 
 const markerIconCache = new Map<string, L.DivIcon>();
 
@@ -259,24 +258,22 @@ export default function MapPreview({
             <span className="selected-place-hint">탭해서 상세 보기</span>
           </button>
           <div className="map-actions">
-            <a
+            <button
               className="round-action"
-              href={getNaverMapUrl(selectedStore)}
-              target="_blank"
-              rel="noreferrer"
+              type="button"
               aria-label="네이버 지도"
+              onClick={() => openNaverMap(selectedStore)}
             >
               <Navigation size={19} />
-            </a>
-            <a
+            </button>
+            <button
               className="round-action kakao"
-              href={getKakaoMapUrl(selectedStore)}
-              target="_blank"
-              rel="noreferrer"
+              type="button"
               aria-label="카카오맵"
+              onClick={() => openKakaoMap(selectedStore)}
             >
               <MapIcon size={19} />
-            </a>
+            </button>
           </div>
         </div>
       ) : (

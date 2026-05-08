@@ -18,7 +18,10 @@
       "Bash(pnpm dev *)",
       "Bash(git -C /Users/aton/project/doomole/app-in-toss-project-1 remote -v)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(pnpm deploy *)",
+      "Bash(./node_modules/.bin/ait deploy *)"
     ]
   }
 }

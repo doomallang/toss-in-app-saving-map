@@ -15,7 +15,7 @@ import { useEffect } from "react";
 
 import type { Store } from "../data/stores";
 import { inferStoreVisualVariant } from "../storeVisuals";
-import { getDistanceLabel, getKakaoMapUrl, getNaverMapUrl } from "../utils";
+import { getDistanceLabel, openKakaoMap, openNaverMap } from "../utils";
 import StoreVisualIcon from "./StoreVisualIcon";
 
 export default function StoreDetailSheet({
@@ -129,14 +129,14 @@ export default function StoreDetailSheet({
             <MapIcon size={19} />
             미리보기
           </button>
-          <a href={getNaverMapUrl(store)} target="_blank" rel="noreferrer">
+          <button type="button" onClick={() => openNaverMap(store)}>
             <Navigation size={19} />
             네이버
-          </a>
-          <a href={getKakaoMapUrl(store)} target="_blank" rel="noreferrer">
+          </button>
+          <button type="button" onClick={() => openKakaoMap(store)}>
             <MapIcon size={19} />
             카카오
-          </a>
+          </button>
           {hasPhone && (
             <a href={`tel:${phone}`}>
               <Phone size={19} />

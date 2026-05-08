@@ -17,13 +17,42 @@ export function getDistanceLabel(distanceMeters?: number): string {
   return `${(distanceMeters / 1000).toFixed(1)}km`;
 }
 
-export function getNaverMapUrl(store: Store): string {
-  return `https://map.naver.com/p/search/${encodeURIComponent(`${store.name} ${store.address}`)}`;
+// 딥링크 시도 → 앱 미설치 시 웹 폴백
+export function openNaverMap(store: Store): void {
+  const appUrl =
+    store.latitude != null && store.longitude != null
+      ? `nmap://place?lat=${store.latitude}&lng=${store.longitude}&name=${encodeURIComponent(store.name)}&appname=im.toss.app`
+      : `nmap://search?query=${encodeURIComponent(`${store.name} ${store.address}`)}&appname=im.toss.app`;
+
+  const webUrl = `https://map.naver.com/p/search/${encodeURIComponent(`${store.name} ${store.address}`)}`;
+
+  const start = Date.now();
+  window.location.href = appUrl;
+
+  setTimeout(() => {
+    if (Date.now() - start < 2000) {
+      window.open(webUrl, "_blank", "noopener");
+    }
+  }, 1200);
 }
 
-export function getKakaoMapUrl(store: Store): string {
-  if (store.latitude != null && store.longitude != null) {
-    return `https://map.kakao.com/link/to/${encodeURIComponent(store.name)},${store.latitude},${store.longitude}`;
-  }
-  return `https://map.kakao.com/link/search/${encodeURIComponent(`${store.name} ${store.address}`)}`;
+export function openKakaoMap(store: Store): void {
+  const appUrl =
+    store.latitude != null && store.longitude != null
+      ? `kakaomap://look?p=${store.latitude},${store.longitude}`
+      : `kakaomap://search?q=${encodeURIComponent(`${store.name} ${store.address}`)}`;
+
+  const webUrl =
+    store.latitude != null && store.longitude != null
+      ? `https://map.kakao.com/link/to/${encodeURIComponent(store.name)},${store.latitude},${store.longitude}`
+      : `https://map.kakao.com/link/search/${encodeURIComponent(`${store.name} ${store.address}`)}`;
+
+  const start = Date.now();
+  window.location.href = appUrl;
+
+  setTimeout(() => {
+    if (Date.now() - start < 2000) {
+      window.open(webUrl, "_blank", "noopener");
+    }
+  }, 1200);
 }
