@@ -63,8 +63,10 @@ export default function MapPreview({
   const onSelectStoreRef = useRef(onSelectStore);
   onSelectStoreRef.current = onSelectStore;
 
-  // Map init
+  // Map init — display:none 상태에서 Leaflet을 초기화하면 크기가 0으로 잡혀 타일이 안 뜸
+  // hidden=false 첫 진입 시 한 번만 초기화, 이후 탭 전환 시에도 지도 상태 유지
   useEffect(() => {
+    if (hidden) return;
     if (mapElRef.current == null || mapRef.current != null) return;
 
     const initialCenter: [number, number] = userLocation
@@ -106,17 +108,21 @@ export default function MapPreview({
     clusterGroupRef.current = clusterGroup;
     userLayerRef.current = userLayer;
     mapRef.current = map;
-    const storeMarkers = storeMarkersRef.current;
+    // cleanup 없음 — hidden 변경 시 지도를 제거하지 않고 상태 유지
+  }, [hidden]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 컴포넌트 언마운트 시에만 지도 정리
+  useEffect(() => {
+    const storeMarkers = storeMarkersRef.current;
     return () => {
       storeMarkers.clear();
       userMarkerRef.current = null;
       clusterGroupRef.current = null;
       userLayerRef.current = null;
-      map.remove();
+      mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // 전체 마커 동기화 — hidden일 때 건너뛰고, 탭이 열릴 때 한 번에 반영
   useEffect(() => {
