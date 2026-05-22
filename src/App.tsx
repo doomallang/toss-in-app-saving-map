@@ -4,11 +4,14 @@ import {
   getCurrentLocation,
 } from "@apps-in-toss/web-framework";
 import {
+  Bookmark,
   BookmarkCheck,
   ChevronDown,
   Home,
+  Info,
   LocateFixed,
   Map as MapIcon,
+  Share2,
   SlidersHorizontal,
   Sparkles,
   Star,
@@ -36,7 +39,9 @@ import RegionSheet from "./components/RegionSheet";
 import { StoreListSkeleton } from "./components/Skeletons";
 import StoreCard from "./components/StoreCard";
 import StoreDetailSheet from "./components/StoreDetailSheet";
+import StoreVisualIcon from "./components/StoreVisualIcon";
 import type { Store } from "./data/stores";
+import { inferStoreVisualVariant } from "./storeVisuals";
 import {
   CategoryFilter,
   PriceFilter,
@@ -47,6 +52,7 @@ import {
   Tab,
 } from "./types";
 import type { Coordinates } from "./utils";
+import { getDataFreshness } from "./utils";
 
 const CATEGORIES: Array<{ id: CategoryFilter; label: string }> = [
   { id: "all", label: "전체" },
@@ -59,7 +65,11 @@ const CATEGORIES: Array<{ id: CategoryFilter; label: string }> = [
 
 const SAVED_KEY = "saving-map.saved-store-ids";
 const RECENT_KEY = "saving-map.recent-store-ids";
+const VISITED_KEY = "saving-map.visited-store-ids";
+const SEARCH_HISTORY_KEY = "saving-map.search-history";
+const NOTES_KEY = "saving-map.store-notes";
 const RECENT_MAX = 5;
+const SEARCH_HISTORY_MAX = 8;
 const REGION_ORDER = [
   "서울",
   "경기",
@@ -192,6 +202,63 @@ async function writeSavedIds(ids: string[]) {
   }
 }
 
+async function readSearchHistory() {
+  try {
+    const value = await Storage.getItem(SEARCH_HISTORY_KEY);
+    return value ? (JSON.parse(value) as string[]) : [];
+  } catch {
+    const value = window.localStorage.getItem(SEARCH_HISTORY_KEY);
+    return value ? (JSON.parse(value) as string[]) : [];
+  }
+}
+
+async function writeSearchHistory(terms: string[]) {
+  const value = JSON.stringify(terms);
+  try {
+    await Storage.setItem(SEARCH_HISTORY_KEY, value);
+  } catch {
+    window.localStorage.setItem(SEARCH_HISTORY_KEY, value);
+  }
+}
+
+async function readStoreNotes() {
+  try {
+    const value = await Storage.getItem(NOTES_KEY);
+    return value ? (JSON.parse(value) as Record<string, string>) : {};
+  } catch {
+    const value = window.localStorage.getItem(NOTES_KEY);
+    return value ? (JSON.parse(value) as Record<string, string>) : {};
+  }
+}
+
+async function writeStoreNotes(notes: Record<string, string>) {
+  const value = JSON.stringify(notes);
+  try {
+    await Storage.setItem(NOTES_KEY, value);
+  } catch {
+    window.localStorage.setItem(NOTES_KEY, value);
+  }
+}
+
+async function readVisitedIds() {
+  try {
+    const value = await Storage.getItem(VISITED_KEY);
+    return value ? (JSON.parse(value) as string[]) : [];
+  } catch {
+    const value = window.localStorage.getItem(VISITED_KEY);
+    return value ? (JSON.parse(value) as string[]) : [];
+  }
+}
+
+async function writeVisitedIds(ids: string[]) {
+  const value = JSON.stringify(ids);
+  try {
+    await Storage.setItem(VISITED_KEY, value);
+  } catch {
+    window.localStorage.setItem(VISITED_KEY, value);
+  }
+}
+
 function App() {
   const [fullStores, setFullStores] = useState<Store[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
@@ -205,6 +272,11 @@ function App() {
   const [category, setCategory] = useState<CategoryFilter>("all");
   const [query, setQuery] = useState("");
   const [savedIds, setSavedIds] = useState<string[]>([]);
+  const [visitedIds, setVisitedIds] = useState<string[]>([]);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [storeNotes, setStoreNotes] = useState<Record<string, string>>({});
+  const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [detailStoreId, setDetailStoreId] = useState<string | null>(null);
   const [locationLabel, setLocationLabel] = useState("가까운 순 보기");
@@ -222,6 +294,9 @@ function App() {
   useEffect(() => {
     readSavedIds().then(setSavedIds);
     readRecentIds().then(setRecentIds);
+    readVisitedIds().then(setVisitedIds);
+    readSearchHistory().then(setSearchHistory);
+    readStoreNotes().then(setStoreNotes);
   }, []);
 
   useEffect(() => {
@@ -426,6 +501,18 @@ function App() {
   ]);
 
   const mapStores = filteredStores.filter(hasCoordinates);
+
+  const nearestStore = useMemo(() => {
+    if (userLocation == null) return null;
+    return storesWithDistance
+      .filter(hasCoordinates)
+      .reduce<(typeof storesWithDistance)[0] | null>((best, store) => {
+        if (best == null) return store;
+        return (store.distanceMeters ?? Infinity) < (best.distanceMeters ?? Infinity)
+          ? store
+          : best;
+      }, null);
+  }, [storesWithDistance, userLocation]);
   const selectedStore =
     storesWithDistance.find(
       (store) => store.id === selectedStoreId && hasCoordinates(store),
@@ -507,6 +594,15 @@ function App() {
     writeSavedIds(nextSavedIds);
   }
 
+  function handleToggleVisited(storeId: string) {
+    const nextVisitedIds = visitedIds.includes(storeId)
+      ? visitedIds.filter((id) => id !== storeId)
+      : [...visitedIds, storeId];
+
+    setVisitedIds(nextVisitedIds);
+    writeVisitedIds(nextVisitedIds);
+  }
+
   function handleOpenMap(store: Store) {
     setSelectedStoreId(store.id);
     setTab("map");
@@ -524,6 +620,76 @@ function App() {
       writeRecentIds(next);
       return next;
     });
+
+    const term = query.trim();
+    if (term.length >= 1) {
+      setSearchHistory((prev) => {
+        const next = [term, ...prev.filter((t) => t !== term)].slice(
+          0,
+          SEARCH_HISTORY_MAX,
+        );
+        writeSearchHistory(next);
+        return next;
+      });
+    }
+  }
+
+  function handleRemoveSearchTerm(term: string) {
+    setSearchHistory((prev) => {
+      const next = prev.filter((t) => t !== term);
+      writeSearchHistory(next);
+      return next;
+    });
+  }
+
+  function handleClearSearchHistory() {
+    setSearchHistory([]);
+    writeSearchHistory([]);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (noteTimerRef.current != null) clearTimeout(noteTimerRef.current);
+      if (toastTimerRef.current != null) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  function handleChangeNote(storeId: string, text: string) {
+    if (noteTimerRef.current != null) clearTimeout(noteTimerRef.current);
+
+    const next = { ...storeNotes };
+    if (text.trim().length === 0) {
+      delete next[storeId];
+    } else {
+      next[storeId] = text;
+    }
+    setStoreNotes(next);
+    noteTimerRef.current = setTimeout(() => writeStoreNotes(next), 600);
+  }
+
+  const [shareToast, setShareToast] = useState<"copied" | "shared" | null>(null);
+
+  async function handleShareSaved() {
+    const stores = savedStores;
+    if (stores.length === 0) return;
+
+    const header = `절약지도 저장 목록 (${stores.length}곳)\n`;
+    const body = stores
+      .map((s) => `• ${s.name}\n  ${s.benefitTitle}\n  ${s.address}`)
+      .join("\n\n");
+    const text = `${header}\n${body}`;
+
+    if (navigator.share) {
+      const shared = await navigator.share({ title: "절약지도 저장 목록", text }).then(() => true).catch(() => false);
+      if (!shared) return;
+      setShareToast("shared");
+    } else {
+      await navigator.clipboard.writeText(text).catch(() => {});
+      setShareToast("copied");
+    }
+
+    if (toastTimerRef.current != null) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setShareToast(null), 2200);
   }
 
   const visibleStores = filteredStores;
@@ -642,6 +808,38 @@ function App() {
         placeholder="밥집, 온누리, 세탁 검색"
       />
 
+      {query.trim().length === 0 && searchHistory.length > 0 && (
+        <section className="search-history" aria-label="최근 검색어">
+          <div className="search-history-header">
+            <span>최근 검색어</span>
+            <button type="button" onClick={handleClearSearchHistory}>
+              전체 삭제
+            </button>
+          </div>
+          <div className="search-history-chips">
+            {searchHistory.map((term) => (
+              <div key={term} className="search-chip">
+                <button
+                  type="button"
+                  onClick={() => {
+                    startTransition(() => setQuery(term));
+                  }}
+                >
+                  {term}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`${term} 삭제`}
+                  onClick={() => handleRemoveSearchTerm(term)}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <nav className="category-tabs" aria-label="카테고리">
         {visibleCategories.map((item) => (
           <button
@@ -686,10 +884,16 @@ function App() {
           </section>
 
           {dataGeneratedAt != null && (
-            <p className="data-updated-label">
-              공공데이터{" "}
-              {new Date(dataGeneratedAt).toLocaleDateString("ko-KR")} 기준
-            </p>
+            <DataFreshnessRow generatedAt={dataGeneratedAt} />
+          )}
+
+          {nearestStore != null && (
+            <NearestCard
+              store={nearestStore}
+              isSaved={savedIds.includes(nearestStore.id)}
+              onSelect={() => handleOpenDetail(nearestStore)}
+              onToggleSaved={() => handleToggleSaved(nearestStore.id)}
+            />
           )}
 
           {recentStores.length > 0 && (
@@ -719,6 +923,8 @@ function App() {
           isOpen={isMapListOpen}
           stores={filteredStores}
           savedIds={savedIds}
+          visitedIds={visitedIds}
+          storeNotes={storeNotes}
           selectedStoreId={selectedStoreId}
           onToggle={() => setIsMapListOpen((v) => !v)}
           onSelectStore={(store) => {
@@ -736,12 +942,15 @@ function App() {
           onnuriCount={onnuriCount}
           regionLabel={selectedRegion}
           regionalSavedCount={regionalSavedCount}
+          savedStores={savedStores}
           totalSavedCount={totalSavedCount}
           totalCount={regionScopedStores.length}
           under10kCount={
             regionScopedStores.filter((s) => s.priceLabel === "만원 이하")
               .length
           }
+          visitedIds={visitedIds}
+          visitedCount={visitedIds.length}
           onLocate={handleLocate}
         />
       ) : dataState === "loading" || regionLoading ? (
@@ -769,13 +978,28 @@ function App() {
         <section className="store-list" aria-label="절약처 목록">
           <div className="section-title">
             <h2>{tab === "saved" ? "저장한 곳" : "지금 갈만한 곳"}</h2>
-            <span>{visibleStores.length}곳</span>
+            <div className="section-title-right">
+              <span>{visibleStores.length}곳</span>
+              {tab === "saved" && visibleStores.length > 0 && (
+                <button
+                  className="share-list-button"
+                  type="button"
+                  aria-label="저장 목록 공유"
+                  onClick={handleShareSaved}
+                >
+                  <Share2 size={15} />
+                  공유
+                </button>
+              )}
+            </div>
           </div>
 
           {pagedStores.map((store) => (
             <StoreCard
               isActive={selectedStoreId === store.id}
               isSaved={savedIds.includes(store.id)}
+              isVisited={visitedIds.includes(store.id)}
+              note={storeNotes[store.id]}
               key={store.id}
               store={store}
               onSelect={() => handleOpenDetail(store)}
@@ -818,6 +1042,8 @@ function App() {
       {detailStore != null && (
         <StoreDetailSheet
           isSaved={savedIds.includes(detailStore.id)}
+          isVisited={visitedIds.includes(detailStore.id)}
+          note={storeNotes[detailStore.id] ?? ""}
           store={detailStore}
           onClose={() => setDetailStoreId(null)}
           onPreviewMap={() => {
@@ -825,7 +1051,15 @@ function App() {
             setDetailStoreId(null);
           }}
           onToggleSaved={() => handleToggleSaved(detailStore.id)}
+          onToggleVisited={() => handleToggleVisited(detailStore.id)}
+          onChangeNote={(text) => handleChangeNote(detailStore.id, text)}
         />
+      )}
+
+      {shareToast != null && (
+        <div className="share-toast" role="status" aria-live="polite">
+          {shareToast === "copied" ? "목록을 클립보드에 복사했어요" : "공유했어요"}
+        </div>
       )}
 
       <nav className="bottom-nav" aria-label="하단 메뉴">
@@ -855,6 +1089,69 @@ function App() {
         />
       </nav>
     </main>
+  );
+}
+
+function DataFreshnessRow({ generatedAt }: { generatedAt: string }) {
+  const { level, label } = getDataFreshness(generatedAt);
+  const dateLabel = new Date(generatedAt).toLocaleDateString("ko-KR");
+
+  return (
+    <div className="freshness-row">
+      <span className="data-updated-label">공공데이터 {dateLabel} 기준</span>
+      <span className={`freshness-badge level-${level}`}>{label}</span>
+    </div>
+  );
+}
+
+function NearestCard({
+  store,
+  isSaved,
+  onSelect,
+  onToggleSaved,
+}: {
+  store: Store;
+  isSaved: boolean;
+  onSelect: () => void;
+  onToggleSaved: () => void;
+}) {
+  const variant = inferStoreVisualVariant(store);
+  return (
+    <section className="nearest-card" aria-label="내 주변 가장 가까운 절약처">
+      <div className="nearest-card-label">
+        <LocateFixed size={12} />
+        지금 가장 가까운 곳
+      </div>
+      <div className="nearest-card-body">
+        <button
+          className={`store-logo ${variant}`}
+          type="button"
+          aria-label="상세 보기"
+          onClick={onSelect}
+        >
+          <StoreVisualIcon variant={variant} />
+        </button>
+        <button className="nearest-card-info" type="button" onClick={onSelect}>
+          <span className="nearest-card-distance">
+            {store.distanceMeters != null && store.distanceMeters < 1000
+              ? `${store.distanceMeters}m 거리`
+              : store.distanceMeters != null
+                ? `${(store.distanceMeters / 1000).toFixed(1)}km 거리`
+                : "거리 계산 중"}
+          </span>
+          <strong>{store.name}</strong>
+          <span>{store.benefitTitle}</span>
+        </button>
+        <button
+          className={`card-icon-button${isSaved ? " saved" : ""}`}
+          type="button"
+          aria-label={isSaved ? "저장 해제" : "저장"}
+          onClick={onToggleSaved}
+        >
+          {isSaved ? <BookmarkCheck size={20} /> : <Bookmark size={20} />}
+        </button>
+      </div>
+    </section>
   );
 }
 

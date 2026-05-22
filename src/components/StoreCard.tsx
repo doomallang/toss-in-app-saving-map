@@ -1,4 +1,4 @@
-import { Bookmark, BookmarkCheck, ChevronRight } from "lucide-react";
+import { Bookmark, BookmarkCheck, ChevronRight, SquareCheckBig } from "lucide-react";
 
 import type { Store } from "../data/stores";
 import { inferStoreVisualVariant } from "../storeVisuals";
@@ -8,6 +8,8 @@ import StoreVisualIcon from "./StoreVisualIcon";
 export default function StoreCard({
   isActive,
   isSaved,
+  isVisited,
+  note,
   store,
   onPreviewMap,
   onSelect,
@@ -15,6 +17,8 @@ export default function StoreCard({
 }: {
   isActive: boolean;
   isSaved: boolean;
+  isVisited: boolean;
+  note?: string;
   store: Store;
   onPreviewMap: () => void;
   onSelect: () => void;
@@ -38,6 +42,12 @@ export default function StoreCard({
       <button className="store-content" type="button" onClick={onSelect}>
         <span className="store-meta">
           {store.source} · {getDistanceLabel(store.distanceMeters)}
+          {isVisited && (
+            <span className="visited-badge">
+              <SquareCheckBig size={11} />
+              다녀옴
+            </span>
+          )}
         </span>
         <strong>{store.name}</strong>
         <span className="benefit">
@@ -50,6 +60,7 @@ export default function StoreCard({
           )}
         </span>
         <span className="address">{store.address}</span>
+        {note && <span className="store-note">{note}</span>}
       </button>
 
       <div className="store-actions">

@@ -3,7 +3,7 @@ import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import "leaflet.markercluster";
-import { Map as MapIcon, Navigation } from "lucide-react";
+import { LocateFixed, Map as MapIcon, Navigation } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { Store } from "../data/stores";
@@ -227,7 +227,14 @@ export default function MapPreview({
     }
   }, [selectedStore, selectedStoreId, hidden]);
 
-  // 탭 전환 시 지도 크기 재계산
+  // 탭이 숨겨지면 prevSelectedStoreIdRef 초기화 — 복귀 시 같은 가게도 재중심
+  useEffect(() => {
+    if (hidden) {
+      prevSelectedStoreIdRef.current = null;
+    }
+  }, [hidden]);
+
+  // 탭 전환 시 크기 재계산 + 위치 첫 획득 시에만 중심 이동 (사용자 줌/패닝 보존)
   useEffect(() => {
     const map = mapRef.current;
     if (hidden || map == null) return;
@@ -235,11 +242,21 @@ export default function MapPreview({
     map.invalidateSize();
 
     if (userLocation) {
-      map.setView([userLocation.latitude, userLocation.longitude], 14, {
-        animate: true,
-      });
+      map.setView(
+        [userLocation.latitude, userLocation.longitude],
+        Math.max(map.getZoom(), 14),
+        { animate: true },
+      );
     }
-  }, [hidden, userLocation]);
+  }, [hidden]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleRecenter() {
+    const map = mapRef.current;
+    if (map == null || userLocation == null) return;
+    map.setView([userLocation.latitude, userLocation.longitude], Math.max(map.getZoom(), 15), {
+      animate: true,
+    });
+  }
 
   return (
     <section
@@ -248,6 +265,16 @@ export default function MapPreview({
       style={{ display: hidden ? "none" : undefined }}
     >
       <div ref={mapElRef} className="map-canvas" />
+      {userLocation != null && (
+        <button
+          className="map-recenter-button"
+          type="button"
+          aria-label="내 위치로 이동"
+          onClick={handleRecenter}
+        >
+          <LocateFixed size={18} />
+        </button>
+      )}
 
       {selectedStore != null ? (
         <div className="selected-place">

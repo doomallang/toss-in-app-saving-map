@@ -6,8 +6,10 @@ import {
   Map as MapIcon,
   MapPin,
   Navigation,
+  PenLine,
   Phone,
   Share2,
+  SquareCheckBig,
   WalletCards,
   X,
 } from "lucide-react";
@@ -20,16 +22,24 @@ import StoreVisualIcon from "./StoreVisualIcon";
 
 export default function StoreDetailSheet({
   isSaved,
+  isVisited,
+  note,
   store,
   onClose,
   onPreviewMap,
   onToggleSaved,
+  onToggleVisited,
+  onChangeNote,
 }: {
   isSaved: boolean;
+  isVisited: boolean;
+  note: string;
   store: Store;
   onClose: () => void;
   onPreviewMap: () => void;
   onToggleSaved: () => void;
+  onToggleVisited: () => void;
+  onChangeNote: (text: string) => void;
 }) {
   const phone = store.sourceMeta?.phone;
   const hasPhone = phone != null && phone.trim().length > 0;
@@ -120,10 +130,36 @@ export default function StoreDetailSheet({
           )}
         </div>
 
+        {isSaved && (
+          <div className="detail-note">
+            <label className="detail-note-label" htmlFor={`note-${store.id}`}>
+              <PenLine size={13} />
+              메모
+            </label>
+            <textarea
+              id={`note-${store.id}`}
+              className="detail-note-input"
+              value={note}
+              onChange={(e) => onChangeNote(e.target.value)}
+              placeholder="월요일 휴무, 주차 가능 등"
+              maxLength={80}
+              rows={2}
+            />
+          </div>
+        )}
+
         <div className="detail-actions">
           <button type="button" onClick={onToggleSaved}>
             {isSaved ? <BookmarkCheck size={19} /> : <Bookmark size={19} />}
             {isSaved ? "저장됨" : "저장"}
+          </button>
+          <button
+            className={isVisited ? "visited-active" : ""}
+            type="button"
+            onClick={onToggleVisited}
+          >
+            <SquareCheckBig size={19} />
+            {isVisited ? "다녀왔어요" : "방문 체크"}
           </button>
           <button type="button" onClick={onPreviewMap}>
             <MapIcon size={19} />

@@ -7,6 +7,8 @@ export default function MapListPanel({
   isOpen,
   stores,
   savedIds,
+  visitedIds,
+  storeNotes,
   selectedStoreId,
   onToggle,
   onSelectStore,
@@ -16,6 +18,8 @@ export default function MapListPanel({
   isOpen: boolean;
   stores: Store[];
   savedIds: string[];
+  visitedIds: string[];
+  storeNotes: Record<string, string>;
   selectedStoreId: string | null;
   onToggle: () => void;
   onSelectStore: (store: Store) => void;
@@ -50,6 +54,8 @@ export default function MapListPanel({
                 key={store.id}
                 isActive={selectedStoreId === store.id}
                 isSaved={savedIds.includes(store.id)}
+                isVisited={visitedIds.includes(store.id)}
+                note={storeNotes[store.id]}
                 store={store}
                 onSelect={() => onOpenDetail(store)}
                 onPreviewMap={() => onSelectStore(store)}
