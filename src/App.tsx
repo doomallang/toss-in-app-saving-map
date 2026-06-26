@@ -2,6 +2,8 @@ import {
   Accuracy,
   Storage,
   getCurrentLocation,
+  loadFullScreenAd,
+  showFullScreenAd,
 } from "@apps-in-toss/web-framework";
 import {
   Bookmark,
@@ -19,6 +21,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import {
+  Fragment,
   Suspense,
   lazy,
   startTransition,
@@ -30,6 +33,7 @@ import {
 } from "react";
 import { SearchField } from "@toss/tds-mobile";
 import "./App.css";
+import { BannerAd } from "./components/BannerAd";
 import { EmptyResults, EmptySaved } from "./components/EmptyStates";
 import FilterSheet from "./components/FilterSheet";
 import MapListPanel from "./components/MapListPanel";
@@ -62,6 +66,8 @@ const CATEGORIES: Array<{ id: CategoryFilter; label: string }> = [
   { id: "mobility", label: "교통" },
   { id: "onnuri", label: "온누리" },
 ];
+
+const INTERSTITIAL_AD_GROUP_ID = "ait.v2.live.acfcb003ad7942c7";
 
 const SAVED_KEY = "saving-map.saved-store-ids";
 const RECENT_KEY = "saving-map.recent-store-ids";
@@ -610,7 +616,6 @@ function App() {
 
   function handleOpenDetail(store: Store) {
     setSelectedStoreId(store.id);
-    setDetailStoreId(store.id);
 
     setRecentIds((prev) => {
       const next = [store.id, ...prev.filter((id) => id !== store.id)].slice(
@@ -631,6 +636,25 @@ function App() {
         writeSearchHistory(next);
         return next;
       });
+    }
+
+    const canShowAd = (() => { try { return isAdLoaded && showFullScreenAd.isSupported(); } catch { return false; } })();
+    if (canShowAd) {
+      setIsAdLoaded(false);
+      showFullScreenAd({
+        options: { adGroupId: INTERSTITIAL_AD_GROUP_ID },
+        onEvent: (event) => {
+          if (event.type === "dismissed" || event.type === "failedToShow") {
+            setDetailStoreId(store.id);
+            preloadInterstitialAd();
+          }
+        },
+        onError: () => {
+          setDetailStoreId(store.id);
+        },
+      });
+    } else {
+      setDetailStoreId(store.id);
     }
   }
 
@@ -666,6 +690,32 @@ function App() {
     setStoreNotes(next);
     noteTimerRef.current = setTimeout(() => writeStoreNotes(next), 600);
   }
+
+  const [isAdLoaded, setIsAdLoaded] = useState(false);
+  const adUnregisterRef = useRef<(() => void) | null>(null);
+
+  function preloadInterstitialAd() {
+    try {
+      if (!loadFullScreenAd.isSupported()) return;
+    } catch {
+      return;
+    }
+    adUnregisterRef.current?.();
+    setIsAdLoaded(false);
+    adUnregisterRef.current = loadFullScreenAd({
+      options: { adGroupId: INTERSTITIAL_AD_GROUP_ID },
+      onEvent: (event) => {
+        if (event.type === "loaded") setIsAdLoaded(true);
+      },
+      onError: () => {},
+    });
+  }
+
+  useEffect(() => {
+    preloadInterstitialAd();
+    return () => { adUnregisterRef.current?.(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [shareToast, setShareToast] = useState<"copied" | "shared" | null>(null);
 
@@ -994,18 +1044,20 @@ function App() {
             </div>
           </div>
 
-          {pagedStores.map((store) => (
-            <StoreCard
-              isActive={selectedStoreId === store.id}
-              isSaved={savedIds.includes(store.id)}
-              isVisited={visitedIds.includes(store.id)}
-              note={storeNotes[store.id]}
-              key={store.id}
-              store={store}
-              onSelect={() => handleOpenDetail(store)}
-              onPreviewMap={() => handleOpenMap(store)}
-              onToggleSaved={() => handleToggleSaved(store.id)}
-            />
+          {pagedStores.map((store, index) => (
+            <Fragment key={store.id}>
+              <StoreCard
+                isActive={selectedStoreId === store.id}
+                isSaved={savedIds.includes(store.id)}
+                isVisited={visitedIds.includes(store.id)}
+                note={storeNotes[store.id]}
+                store={store}
+                onSelect={() => handleOpenDetail(store)}
+                onPreviewMap={() => handleOpenMap(store)}
+                onToggleSaved={() => handleToggleSaved(store.id)}
+              />
+              {index === 4 && <BannerAd />}
+            </Fragment>
           ))}
           {pageSize < visibleStores.length && (
             <div ref={sentinelRef} style={{ height: 1 }} />

@@ -21,7 +21,26 @@
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
       "Bash(pnpm deploy *)",
-      "Bash(./node_modules/.bin/ait deploy *)"
+      "Bash(./node_modules/.bin/ait deploy *)",
+      "Bash(pnpm run *)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(npx tsc *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports', {}\\), indent=2\\)\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:v for k,v in {**d.get\\('dependencies',{}\\), **d.get\\('devDependencies',{}\\)}.items\\(\\) if 'leaflet' in k.lower\\(\\)}, indent=2\\)\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('main:', d.get\\('main'\\)\\); print\\('module:', d.get\\('module'\\)\\); print\\('exports:', d.get\\('exports'\\)\\)\")",
+      "Bash(./node_modules/.bin/ait build *)",
+      "Bash(./node_modules/.bin/ait *)",
+      "WebSearch",
+      "Bash(pnpm install *)",
+      "Bash(pkill -f \"node.*connections\")",
+      "Bash(curl -s http://localhost:5174)",
+      "Bash(pnpm tsc *)",
+      "Bash(identify /Users/aton/project/doomole/app-in-toss-project-1/icon.png)",
+      "Bash(sips -g pixelWidth -g pixelHeight /Users/aton/project/doomole/app-in-toss-project-1/icon.png)",
+      "Bash(pnpm data:download *)",
+      "Bash(git commit *)",
+      "Bash(DATA_REGION=전국 MAX_GOOD_PRICE=99999 MAX_ONNURI=20000 node *)",
+      "Skill(run)"
     ]
   }
 }
