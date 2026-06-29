@@ -13,7 +13,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { Store } from "../data/stores";
 import { inferStoreVisualVariant } from "../storeVisuals";
@@ -44,6 +44,8 @@ export default function StoreDetailSheet({
   const phone = store.sourceMeta?.phone;
   const hasPhone = phone != null && phone.trim().length > 0;
   const variant = inferStoreVisualVariant(store);
+  const [shareToast, setShareToast] = useState<"copied" | "shared" | null>(null);
+  const shareToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -53,13 +55,22 @@ export default function StoreDetailSheet({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    return () => { if (shareToastTimerRef.current != null) clearTimeout(shareToastTimerRef.current); };
+  }, []);
+
   async function handleShare() {
     const text = `${store.name}\n${store.benefitTitle}\n${store.address}`;
     if (navigator.share) {
-      await navigator.share({ title: store.name, text }).catch(() => {});
+      const shared = await navigator.share({ title: store.name, text }).then(() => true).catch(() => false);
+      if (!shared) return;
+      setShareToast("shared");
     } else {
       await navigator.clipboard.writeText(text).catch(() => {});
+      setShareToast("copied");
     }
+    if (shareToastTimerRef.current != null) clearTimeout(shareToastTimerRef.current);
+    shareToastTimerRef.current = setTimeout(() => setShareToast(null), 2200);
   }
 
   return (
@@ -185,6 +196,11 @@ export default function StoreDetailSheet({
           </button>
         </div>
       </section>
+      {shareToast != null && (
+        <div className="share-toast" role="status" aria-live="polite">
+          {shareToast === "copied" ? "주소를 클립보드에 복사했어요" : "공유했어요"}
+        </div>
+      )}
     </div>
   );
 }

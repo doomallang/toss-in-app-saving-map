@@ -293,9 +293,12 @@ function App() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isMapListOpen, setIsMapListOpen] = useState(false);
   const [selectedRegion, setSelectedRegion] = useState(REGION_ALL);
+  const selectedRegionRef = useRef(selectedRegion);
+  selectedRegionRef.current = selectedRegion;
   const [isRegionOpen, setIsRegionOpen] = useState(false);
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+  const savedIdSet = useMemo(() => new Set(savedIds), [savedIds]);
 
   useEffect(() => {
     readSavedIds().then(setSavedIds);
@@ -359,9 +362,10 @@ function App() {
       return;
     }
 
+    const regionAtFetch = selectedRegion;
     setRegionLoading(true);
     fetch(
-      `${import.meta.env.BASE_URL}data/regions/${encodeURIComponent(selectedRegion)}.json`,
+      `${import.meta.env.BASE_URL}data/regions/${encodeURIComponent(regionAtFetch)}.json`,
       { cache: "force-cache" },
     )
       .then(async (res) => {
@@ -369,18 +373,20 @@ function App() {
         return (await res.json()) as { stores: Store[] };
       })
       .then((data) => {
-        cache.set(selectedRegion, data.stores);
-        setStores(data.stores);
+        cache.set(regionAtFetch, data.stores);
+        if (selectedRegionRef.current === regionAtFetch) setStores(data.stores);
       })
       .catch(() => {
         // 지역 파일 없으면 전체에서 필터
         const fallback = fullStores.filter(
-          (s) => getStoreRegion(s) === selectedRegion,
+          (s) => getStoreRegion(s) === regionAtFetch,
         );
-        cache.set(selectedRegion, fallback);
-        setStores(fallback);
+        cache.set(regionAtFetch, fallback);
+        if (selectedRegionRef.current === regionAtFetch) setStores(fallback);
       })
-      .finally(() => setRegionLoading(false));
+      .finally(() => {
+        if (selectedRegionRef.current === regionAtFetch) setRegionLoading(false);
+      });
   }, [selectedRegion, dataState, fullStores]);
 
   const storesWithDistance = useMemo(() => {
@@ -441,7 +447,7 @@ function App() {
   const filteredStores = useMemo(() => {
     return regionScopedStores
       .filter((store) => {
-        if (tab === "saved" && !savedIds.includes(store.id)) {
+        if (tab === "saved" && !savedIdSet.has(store.id)) {
           return false;
         }
 
@@ -500,13 +506,16 @@ function App() {
     deferredQuery,
     priceFilter,
     radiusFilter,
-    savedIds,
+    savedIdSet,
     sortOption,
     regionScopedStores,
     tab,
   ]);
 
-  const mapStores = filteredStores.filter(hasCoordinates);
+  const mapStores = useMemo(
+    () => filteredStores.filter(hasCoordinates),
+    [filteredStores],
+  );
 
   const nearestStore = useMemo(() => {
     if (userLocation == null) return null;
@@ -519,17 +528,23 @@ function App() {
           : best;
       }, null);
   }, [storesWithDistance, userLocation]);
-  const selectedStore =
-    storesWithDistance.find(
-      (store) => store.id === selectedStoreId && hasCoordinates(store),
-    ) ??
-    mapStores[0] ??
-    null;
-  const detailStore =
-    storesWithDistance.find((store) => store.id === detailStoreId) ?? null;
 
-  const savedStores = regionScopedStores.filter((store) =>
-    savedIds.includes(store.id),
+  const selectedStore = useMemo(
+    () =>
+      storesWithDistance.find(
+        (store) => store.id === selectedStoreId && hasCoordinates(store),
+      ) ?? mapStores[0] ?? null,
+    [storesWithDistance, selectedStoreId, mapStores],
+  );
+
+  const detailStore = useMemo(
+    () => storesWithDistance.find((store) => store.id === detailStoreId) ?? null,
+    [storesWithDistance, detailStoreId],
+  );
+
+  const savedStores = useMemo(
+    () => regionScopedStores.filter((store) => savedIdSet.has(store.id)),
+    [regionScopedStores, savedIdSet],
   );
   const totalSavedCount = savedIds.length;
   const regionalSavedCount = savedStores.length;
@@ -638,7 +653,9 @@ function App() {
       });
     }
 
-    const canShowAd = (() => { try { return isAdLoaded && showFullScreenAd.isSupported(); } catch { return false; } })();
+    detailOpenCountRef.current += 1;
+    const isAdTurn = detailOpenCountRef.current % AD_INTERVAL === 0;
+    const canShowAd = isAdTurn && (() => { try { return isAdLoaded && showFullScreenAd.isSupported(); } catch { return false; } })();
     if (canShowAd) {
       setIsAdLoaded(false);
       showFullScreenAd({
@@ -693,6 +710,8 @@ function App() {
 
   const [isAdLoaded, setIsAdLoaded] = useState(false);
   const adUnregisterRef = useRef<(() => void) | null>(null);
+  const detailOpenCountRef = useRef(0);
+  const AD_INTERVAL = 10;
 
   function preloadInterstitialAd() {
     try {
@@ -806,6 +825,7 @@ function App() {
         <button
           className="location-button"
           type="button"
+          disabled={isLocating}
           onClick={handleLocate}
         >
           <LocateFixed size={18} />
@@ -940,7 +960,7 @@ function App() {
           {nearestStore != null && (
             <NearestCard
               store={nearestStore}
-              isSaved={savedIds.includes(nearestStore.id)}
+              isSaved={savedIdSet.has(nearestStore.id)}
               onSelect={() => handleOpenDetail(nearestStore)}
               onToggleSaved={() => handleToggleSaved(nearestStore.id)}
             />
@@ -1048,7 +1068,7 @@ function App() {
             <Fragment key={store.id}>
               <StoreCard
                 isActive={selectedStoreId === store.id}
-                isSaved={savedIds.includes(store.id)}
+                isSaved={savedIdSet.has(store.id)}
                 isVisited={visitedIds.includes(store.id)}
                 note={storeNotes[store.id]}
                 store={store}
@@ -1056,7 +1076,7 @@ function App() {
                 onPreviewMap={() => handleOpenMap(store)}
                 onToggleSaved={() => handleToggleSaved(store.id)}
               />
-              {index === 4 && <BannerAd />}
+              {index % 10 === 4 && <BannerAd />}
             </Fragment>
           ))}
           {pageSize < visibleStores.length && (
@@ -1093,7 +1113,7 @@ function App() {
 
       {detailStore != null && (
         <StoreDetailSheet
-          isSaved={savedIds.includes(detailStore.id)}
+          isSaved={savedIdSet.has(detailStore.id)}
           isVisited={visitedIds.includes(detailStore.id)}
           note={storeNotes[detailStore.id] ?? ""}
           store={detailStore}

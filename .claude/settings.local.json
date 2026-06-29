@@ -40,7 +40,8 @@
       "Bash(pnpm data:download *)",
       "Bash(git commit *)",
       "Bash(DATA_REGION=전국 MAX_GOOD_PRICE=99999 MAX_ONNURI=20000 node *)",
-      "Skill(run)"
+      "Skill(run)",
+      "Skill(code-review)"
     ]
   }
 }

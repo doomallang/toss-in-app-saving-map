@@ -68,7 +68,7 @@ export default function StoreCard({
           className="card-icon-button"
           type="button"
           onClick={onToggleSaved}
-          aria-label="저장"
+          aria-label={isSaved ? "저장 해제" : "저장"}
         >
           {isSaved ? <BookmarkCheck size={20} /> : <Bookmark size={20} />}
         </button>
